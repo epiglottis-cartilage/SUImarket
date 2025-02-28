@@ -99,17 +99,17 @@ module pmarket::pmarket{
             nft_id
         };
         let listing_id = listing.id.to_inner();
-        event::emit(ListingCreated {
-            listing_id,
-            nft_id,
-            owner: sender,
-            price: listing.price,
-        });
-
         dof::add(&mut listing.id, nft_id, nft);
 
         marketplace.listings.add(nft_id, listing);
         marketplace.listing_ids.insert(listing_id);
+
+        event::emit(ListingCreated {
+            listing_id,
+            nft_id,
+            owner: sender,
+            price,
+        });
 
         listing_id
     }
@@ -126,11 +126,11 @@ module pmarket::pmarket{
         assert!(listing.owner == sender, EInvalidOwner);
 
         let nft: N = dof::remove(&mut listing.id, nft_id);
-
         let Listing { id, owner, price, nft_id: _ } = listing;
+
         let listing_id = id.to_inner();
-        
         marketplace.listing_ids.remove(&listing_id);
+        id.delete();
 
         event::emit(ListingCancelled {
             listing_id,
@@ -138,8 +138,6 @@ module pmarket::pmarket{
             owner,
             price,
         });
-
-        id.delete();
 
         nft
     }
@@ -153,18 +151,20 @@ module pmarket::pmarket{
         assert!(object_table::contains(&marketplace.listings, nft_id), EInvalidNft);
 
         let mut listing = marketplace.listings.remove<ID, Listing>(nft_id);
+
         let nft: N = dof::remove(&mut listing.id, nft_id);
         let Listing { id, owner, price, nft_id: _ } = listing;
 
         let listing_id = id.to_inner();
-        
         marketplace.listing_ids.remove(&listing_id);
+        id.delete();
 
         if(coin.value() > price){
             let extra = coin.value() - price;
             coin.split_and_transfer(extra, ctx.sender(), ctx);
         };
         assert!(coin.value() == price, EInvalidAmount);
+        transfer::public_transfer(coin, owner);
 
         event::emit(Buy {
             listing_id,
@@ -173,10 +173,6 @@ module pmarket::pmarket{
             buyer: ctx.sender(),
             price,
         });
-
-        transfer::public_transfer(coin, owner);
-
-        id.delete();
 
         nft
     }
@@ -197,11 +193,9 @@ module pmarket::pmarket{
         scenario.next_tx(admin);
         {
             let marketplace_id = test_scenario::most_recent_id_shared<Marketplace>().destroy_some();
-
             let marketplace: Marketplace = scenario.take_shared_by_id(marketplace_id);
-
             assert!(marketplace.listings.is_empty());
-
+            
             test_scenario::return_shared(marketplace);
 
             let publisher = scenario.take_from_sender<Publisher>();
